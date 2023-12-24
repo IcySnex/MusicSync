@@ -1,0 +1,14 @@
+.vs/
+packages/
+
+*.suo
+*.user
+_ReSharper.*
+
+MusicSync/bin/
+MusicSync/obj/
+MusicSync/Properties/
+
+ITunesLibraryParser/bin/
+ITunesLibraryParser/obj/
+ITunesLibraryParser/Properties/
