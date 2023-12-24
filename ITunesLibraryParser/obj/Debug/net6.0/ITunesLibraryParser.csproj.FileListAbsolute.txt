@@ -1,0 +1,12 @@
+D:\Personal\Coding\MusicSync\ITunesLibraryParser\bin\Debug\net6.0\ITunesLibraryParser.deps.json
+D:\Personal\Coding\MusicSync\ITunesLibraryParser\bin\Debug\net6.0\ITunesLibraryParser.dll
+D:\Personal\Coding\MusicSync\ITunesLibraryParser\bin\Debug\net6.0\ITunesLibraryParser.pdb
+D:\Personal\Coding\MusicSync\ITunesLibraryParser\obj\Debug\net6.0\ITunesLibraryParser.csproj.AssemblyReference.cache
+D:\Personal\Coding\MusicSync\ITunesLibraryParser\obj\Debug\net6.0\ITunesLibraryParser.GeneratedMSBuildEditorConfig.editorconfig
+D:\Personal\Coding\MusicSync\ITunesLibraryParser\obj\Debug\net6.0\ITunesLibraryParser.AssemblyInfoInputs.cache
+D:\Personal\Coding\MusicSync\ITunesLibraryParser\obj\Debug\net6.0\ITunesLibraryParser.AssemblyInfo.cs
+D:\Personal\Coding\MusicSync\ITunesLibraryParser\obj\Debug\net6.0\ITunesLibraryParser.csproj.CoreCompileInputs.cache
+D:\Personal\Coding\MusicSync\ITunesLibraryParser\obj\Debug\net6.0\ITunesLibraryParser.dll
+D:\Personal\Coding\MusicSync\ITunesLibraryParser\obj\Debug\net6.0\refint\ITunesLibraryParser.dll
+D:\Personal\Coding\MusicSync\ITunesLibraryParser\obj\Debug\net6.0\ITunesLibraryParser.pdb
+D:\Personal\Coding\MusicSync\ITunesLibraryParser\obj\Debug\net6.0\ref\ITunesLibraryParser.dll
