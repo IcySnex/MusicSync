@@ -1,8 +1,0 @@
-{
-  "SyncFromLocation": "D:\\Personal\\Musik",
-  "SyncToLocation": "/mnt/extSdCard/Music",
-  "SyncMaxCount": 100,
-  "OverwriteAlreadySyncred": false,
-  "AdbExecutable": "D:\\Program Files\\android-sdk\\platform-tools\\adb.exe",
-  "ITunesLibraryXml": "C:\\Users\\User69\\Music\\iTunes\\iTunes Music Library.xml"
-}
