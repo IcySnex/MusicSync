@@ -1,7 +1,6 @@
 ﻿using AdvancedSharpAdbClient;
-using ITunesLibraryParser;
-using System.ComponentModel;
-using System.Reflection.Emit;
+using iTunesLib;
+using System.Text;
 
 namespace MusicSync;
 
@@ -140,12 +139,12 @@ public class Program
         // Validation
         if (!Config.ValidateSyncConfig(config)) return;
         if (!Config.ValidateAdbConfig(config)) return;
-        if (!await ADB.Wrapper.StartServerASync(config.AdbExecutable)) return;
+        if (!await ADB.StartServerASync(config.AdbExecutable)) return;
 
         try
         {
             // Connect to device
-            (DeviceData device, string info) = await ADB.Wrapper.SelectDeviceAsync();
+            (DeviceData device, string info) = await ADB.SelectDeviceAsync();
             Console.WriteLine($"Connected to ADB device: {info}.\n");
 
             // Files
@@ -154,7 +153,7 @@ public class Program
                 .OrderBy(file => file.LastWriteTime)
                 .Take(config.SyncMaxCount)
                 .ToArray();
-            string[] existingFiles = ADB.Wrapper.GetFiles(device, config.SyncToLocation);
+            string[] existingFiles = ADB.GetFiles(device, config.SyncToLocation);
 
             for (int i = 0; i < files.Length; i++)
             {
@@ -169,7 +168,7 @@ public class Program
                 IProgress<int> progress = new Progress<int>(percent =>
                     Console.Write($"\r[{i + 1}/{files.Length}]  Synchronizing '{file.Name}': [{percent}%]"));
 
-                await ADB.Wrapper.UploadFileAsync(device, file.FullName, Path.Combine(config.SyncToLocation, file.Name).Replace('\\', '/'), file.LastWriteTime, progress);
+                await ADB.UploadFileAsync(device, file.FullName, Path.Combine(config.SyncToLocation, file.Name).Replace('\\', '/'), file.LastWriteTime, progress);
                 Console.WriteLine();
             }
             ConsoleHelpers.Write($"\nMusic synchronized successfully.");
@@ -188,12 +187,12 @@ public class Program
 
         // Validation
         if (!Config.ValidateAdbConfig(config)) return;
-        if (!await ADB.Wrapper.StartServerASync(config.AdbExecutable)) return;
+        if (!await ADB.StartServerASync(config.AdbExecutable)) return;
 
         try
         {
             // Connect to device
-            (DeviceData device, string info) = await ADB.Wrapper.SelectDeviceAsync();
+            (DeviceData device, string info) = await ADB.SelectDeviceAsync();
             ConsoleHelpers.Write($"Connected to ADB device: {info}.");
         }
         catch (Exception ex)
@@ -210,7 +209,7 @@ public class Program
 
         // Validation
         if (!Config.ValidateAdbConfig(config)) return;
-        if (!await ADB.Wrapper.StartServerASync(config.AdbExecutable)) return;
+        if (!await ADB.StartServerASync(config.AdbExecutable)) return;
 
         // Get file paths
         string? filePath = ConsoleHelpers.GetResponse("Enter the path to the file you want to upload to the device", "File path can not be empty.");
@@ -223,14 +222,14 @@ public class Program
         try
         {
             // Connect to device
-            (DeviceData device, string info) = await ADB.Wrapper.SelectDeviceAsync();
+            (DeviceData device, string info) = await ADB.SelectDeviceAsync();
             Console.WriteLine($"\nConnected to ADB device: {info}.\n");
 
             // Sync file
             IProgress<int> progress = new Progress<int>(percent =>
                 Console.Write($"\rUploading file: [{percent}%]"));
 
-            await ADB.Wrapper.UploadFileAsync(device, filePath, saveToPath, null, progress);
+            await ADB.UploadFileAsync(device, filePath, saveToPath, null, progress);
             ConsoleHelpers.Write($"\nUploaded file to device.\n");
         }
         catch (Exception ex)
@@ -250,16 +249,16 @@ public class Program
 
         try
         {
-            ITunesLibrary library = new(config.ITunesLibraryXml);
+            iTunesApp iTunes = new();
 
-            Console.WriteLine($"Track count: {library.Tracks.Count()}");
-            Console.WriteLine($"Album count: {library.Albums.Count()}");
-            Console.WriteLine($"Playlist count: {library.Playlists.Where(playlist => playlist.Tracks.Any() && playlist.Name != "Downloaded" && playlist.Name != "Library" && playlist.Name != "Music").Count()}");
+            IEnumerable<IITPlaylist> playlists = iTunes.LibrarySource.Playlists.Cast<IITPlaylist>().Where(playlist => 
+                playlist.Kind == ITPlaylistKind.ITPlaylistKindUser && playlist.Name != "Music" && playlist.Name != "Movies" && playlist.Name != "TV Shows" && playlist.Name != "Podcasts" &&  playlist.Name != "Audiobooks");
+            //IEnumerable<IITTrack> tracks = iTunes.LibraryPlaylist.Tracks.Cast<IITTrack>();
 
-            var s = library.Tracks.Select(track => track.Loved);
+            Console.WriteLine($"Track count: {iTunes.LibraryPlaylist.Tracks.Count}");
+            Console.WriteLine($"Playlist count: {playlists.Count()}");
 
             ConsoleHelpers.Write($"\nParsed iTunes Library.");
-
         }
         catch (Exception ex)
         {
