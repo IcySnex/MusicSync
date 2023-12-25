@@ -1,9 +1,9 @@
 ﻿using AdvancedSharpAdbClient;
 using AdvancedSharpAdbClient.DeviceCommands;
 
-namespace MusicSync.ADB;
+namespace MusicSync;
 
-public class Wrapper
+public class ADB
 {
     static readonly AdbClient client = new();
 
