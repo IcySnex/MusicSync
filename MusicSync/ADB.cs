@@ -1,5 +1,6 @@
 ﻿using AdvancedSharpAdbClient;
 using AdvancedSharpAdbClient.DeviceCommands;
+using System.Diagnostics;
 
 namespace MusicSync;
 
@@ -12,7 +13,6 @@ public class ADB
     {
         try
         {
-
             if (AdbServer.Instance.GetStatus().IsRunning)
                 return true;
 
@@ -69,17 +69,49 @@ public class ADB
     }
 
 
-    public static async Task UploadFileAsync(
+    public static Task RunCommandAsync(
+        DeviceData device,
+        string shellCommand)
+    {
+        IShellOutputReceiver rec = new ConsoleOutputReceiver();
+        return client.ExecuteShellCommandAsync(device, shellCommand, rec);
+    }
+
+    public static async Task RunRemoteCommandASync(
+        DeviceData device,
+        string command)
+    {
+        Process.Start(new ProcessStartInfo() { UseShellExecute = true, CreateNoWindow = true, FileName = $"{command}" })
+    }
+
+
+    public static Task UploadFileAsync(
         DeviceData device,
         string file,
         string destination,
         DateTimeOffset? timestamp = null,
         IProgress<int>? progress = null)
     {
-        using SyncService service = new(client, device);
-        using FileStream stream = File.OpenRead(file);
+        //using SyncService service = new(client, device);
+        //using FileStream stream = File.OpenRead(file);
 
-        await service.PushAsync(stream, destination, 777, timestamp ?? DateTimeOffset.Now, progress);
+        //await service.PushAsync(stream, destination, 777, timestamp ?? DateTimeOffset.Now, progress);
+        string command = $"adb push \"{file}\" \"{destination}\"";
+        return RunRemoteCommandASync(device, command);
+    }
+
+    public static Task DownloadFileAsync(
+        DeviceData device,
+        string file,
+        string destination,
+        IProgress<int>? progress = null)
+    {
+        //using SyncService service = new(client, device);
+        //using FileStream stream = File.OpenWrite(destination);
+
+        //await service.PullAsync(file, stream, progress);
+        string command = $"adb pull \"{file}\" \"{destination}\"";
+        return RunRemoteCommandASync(device, command);
     }
 
     public static string[] GetFiles(
