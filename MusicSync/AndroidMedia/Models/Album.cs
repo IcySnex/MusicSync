@@ -11,7 +11,7 @@ public class Album : Record
     public Album(
         string name,
         string key,
-        string artLocation) : base()
+        string? artLocation) : base()
     {
         Name = name;
         Key = key;
@@ -26,7 +26,7 @@ public class Album : Record
     public string Key { get; set; } = string.Empty;
 
     [Column("_data")]
-    public string ArtLocation { get; set; } = string.Empty;
+    public string? ArtLocation { get; set; } = null;
 
     [PrimaryKey, AutoIncrement, Column("album_id")]
     public override long Id { get; set; }

@@ -39,11 +39,12 @@ public class AlbumManager : TableManager<Album>
             await library.ExecuteAsync($"INSERT INTO albums (album, album_key) VALUES ('{record.Name}', '{record.Key}')");
         long id = await library.GetLastInsertedIdASync();
 
-        await library.AddAsync(new AlbumArt
-            {
-                AlbumId = id,
-                Location = record.ArtLocation
-            });
+        if (record.ArtLocation is not null)
+            await library.AddAsync(new AlbumArt
+                {
+                    AlbumId = id,
+                    Location = record.ArtLocation
+                });
 
         return id;
 

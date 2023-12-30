@@ -1,6 +1,6 @@
 ﻿using AdvancedSharpAdbClient;
 using AdvancedSharpAdbClient.DeviceCommands;
-using System.Diagnostics;
+using System.Reflection.Metadata.Ecma335;
 
 namespace MusicSync;
 
@@ -13,6 +13,7 @@ public class ADB
     {
         try
         {
+
             if (AdbServer.Instance.GetStatus().IsRunning)
                 return true;
 
@@ -74,44 +75,39 @@ public class ADB
         string shellCommand)
     {
         IShellOutputReceiver rec = new ConsoleOutputReceiver();
-        return client.ExecuteShellCommandAsync(device, shellCommand, rec);
+        return client.ExecuteRemoteCommandAsync(shellCommand, device, rec);
     }
 
-    public static async Task RunRemoteCommandASync(
+    public static Task SetPermissionAsync(
         DeviceData device,
-        string command)
-    {
-        Process.Start(new ProcessStartInfo() { UseShellExecute = true, CreateNoWindow = true, FileName = $"{command}" })
-    }
+        string path,
+        int code) =>
+        RunCommandAsync(device, $"chmod {code} \"{path}\"");
 
 
-    public static Task UploadFileAsync(
+    public static async Task UploadFileAsync(
         DeviceData device,
         string file,
         string destination,
         DateTimeOffset? timestamp = null,
         IProgress<int>? progress = null)
     {
-        //using SyncService service = new(client, device);
-        //using FileStream stream = File.OpenRead(file);
+        using SyncService service = new(client, device);
+        using FileStream stream = File.OpenRead(file);
 
-        //await service.PushAsync(stream, destination, 777, timestamp ?? DateTimeOffset.Now, progress);
-        string command = $"adb push \"{file}\" \"{destination}\"";
-        return RunRemoteCommandASync(device, command);
+        await service.PushAsync(stream, destination, 777, timestamp ?? DateTimeOffset.Now, progress);
     }
 
-    public static Task DownloadFileAsync(
+    public static async Task DownloadFileAsync(
         DeviceData device,
         string file,
         string destination,
         IProgress<int>? progress = null)
     {
-        //using SyncService service = new(client, device);
-        //using FileStream stream = File.OpenWrite(destination);
+        using SyncService service = new(client, device);
+        using FileStream stream = File.OpenWrite(destination);
 
-        //await service.PullAsync(file, stream, progress);
-        string command = $"adb pull \"{file}\" \"{destination}\"";
-        return RunRemoteCommandASync(device, command);
+        await service.PullAsync(file, stream, progress);
     }
 
     public static string[] GetFiles(
@@ -122,5 +118,13 @@ public class ADB
 
         client.ExecuteShellCommand(device, $"ls {directory}", rec);
         return rec.ToString()?.Split("\r\n") ?? Array.Empty<string>();
+    }
+
+
+    public static async Task RefreshMediaLibraryAsync(
+        DeviceData device)
+    {
+        await RunCommandAsync(device, "am force-stop com.android.providers.media");
+        await RunCommandAsync(device, "am start -n \"com.sec.android.app.music/.MusicActionTabActivity\"");
     }
 }

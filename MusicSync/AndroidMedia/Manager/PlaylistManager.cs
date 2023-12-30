@@ -24,11 +24,12 @@ public class PlaylistManager : TableManager<Playlist>
         {
             Data = $"/mnt/sdcard/Playlists/{record.Name}",
             Format = 47621,
-            Parent = 440,
+            //Parent = 440,
+            MiniThumbData = record.ArtLocation,
             DateAdded = record.AddedAtTimestamp,
             Name = record.Name,
             MediaType = 4,
-            StorageId = 65537
+            //StorageId = 65537
         };
         if (replace)
             file.Id = record.Id;
@@ -83,4 +84,8 @@ public class PlaylistManager : TableManager<Playlist>
         long playlistId,
         long trackId) =>
         library.RemoveAsync<PlaylistMap>(map => map.PlaylistId == playlistId && map.TrackId == trackId);
+
+    public Task RemoveAllTracksFromPlaylistAsync(
+        long playlistId) =>
+        library.RemoveAsync<PlaylistMap>(map => map.PlaylistId == playlistId);
 }

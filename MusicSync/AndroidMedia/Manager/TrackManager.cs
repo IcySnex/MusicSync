@@ -15,6 +15,11 @@ public class TrackManager : TableManager<Track>
         string name) =>
         await library.Get<Track>(record => record.Name == name).FirstOrDefaultAsync();
 
+    public async Task<Track?> GetAsync(
+        string name,
+        string artist) =>
+        await library.Get<Track>(record => record.Name == name && record.Artist == artist).FirstOrDefaultAsync();
+
 
     public override async Task<long> AddAsync(
         Track record,

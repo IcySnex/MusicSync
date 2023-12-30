@@ -17,7 +17,7 @@ public abstract class TableManager<Record> where Record : Abstract.Record, new()
 
 
     public virtual Task<Record[]> GetAllAsync(Expression<Func<Record, bool>>? predicate = null) =>
-        library.Get<Record>(predicate).ToArrayAsync();
+        library.Get(predicate).ToArrayAsync();
 
     public virtual async Task<Record?> GetAsync(
         long id) =>

@@ -46,10 +46,6 @@ public class Config
         Config config) =>
         ValidateConfig(string.IsNullOrEmpty(config.SyncFromLocation) || !Directory.Exists(config.SyncFromLocation), "\nSync From Location is empty or does not exist. Please first update the config.");
 
-    public static bool ValidateITunesConfig(
-        Config config) =>
-        ValidateConfig(string.IsNullOrEmpty(config.ITunesLibraryXml) || !File.Exists(config.ITunesLibraryXml), "\niTunes Library XML location is empty or file does not exist. Please first update the config.");
-
 
     public string SyncFromLocation { get; set; } = string.Empty;
 
@@ -60,7 +56,5 @@ public class Config
     public bool OverwriteAlreadySyncred { get; set; } = false;
 
     public string AdbExecutable { get; set; } = "adb.exe";
-
-    public string ITunesLibraryXml { get; set; } = "iTunesLibrary.xml";
 
 }

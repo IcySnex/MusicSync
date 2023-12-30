@@ -36,9 +36,15 @@ public class Track : Record
 
     [Column("artist_id")]
     public long? ArtistId { get; set; } = null;
+    
+    [Column("artist")]
+    public string? Artist { get; set; } = null;
 
     [Column("album_id")]
     public long? AlbumId { get; set; } = null;
+
+    [Column("album")]
+    public string? Album { get; set; } = null;
 
     [Column("genre_name")]
     public string Genre { get; set; } = string.Empty;

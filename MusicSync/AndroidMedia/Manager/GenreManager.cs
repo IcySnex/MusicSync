@@ -41,4 +41,8 @@ public class GenreManager : TableManager<Genre>
         long genreId,
         long trackId) =>
         library.RemoveAsync<GenreMap>(map => map.GenreId == genreId && map.TrackId == trackId);
+
+    public Task RemoveAllTracksFromGenreAsync(
+        long genreId) =>
+        library.RemoveAsync<GenreMap>(map => map.GenreId == genreId);
 }

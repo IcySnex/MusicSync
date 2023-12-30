@@ -2,6 +2,7 @@
 using iTunesLib;
 using MusicSync.AndroidMedia;
 using MusicSync.AndroidMedia.Models;
+using Newtonsoft.Json.Bson;
 using System.Reflection;
 
 namespace MusicSync;
@@ -19,17 +20,18 @@ public class Program
             ConsoleHelpers.WriteClear("Music Sync:\n");
 
             Console.WriteLine("[1]  Sync Music Library");
-            Console.WriteLine("[2]  Sync Music Files\n");
-            Console.WriteLine("[3]  Connect to ADB device");
-            Console.WriteLine("[4]  Upload file to device");
-            Console.WriteLine("[5]  Download file from device\n");
-            Console.WriteLine("[6]  Parse iTunes Library");
-            Console.WriteLine("[7]  Parse Android Media Library\n");
+            Console.WriteLine("[2]  Sync iTunes");
+            Console.WriteLine("[3]  Sync Music Files\n");
+            Console.WriteLine("[4]  Connect to ADB device");
+            Console.WriteLine("[5]  Upload file to device");
+            Console.WriteLine("[6]  Download file from device\n");
+            Console.WriteLine("[7]  Parse iTunes Library");
+            Console.WriteLine("[8]  Parse Android Media Library\n");
             Console.WriteLine("[C]  Display Configuration");
             Console.WriteLine("[E]  Edit Configuration\n");
             Console.WriteLine("[X]  Exit\n\n");
 
-            string? choice = ConsoleHelpers.GetResponse("Press [1] - [6] to continue", "Invalid choice. Please enter a number between [1] and [6].");
+            string? choice = ConsoleHelpers.GetResponse("Press [1] - [8] to continue", "Invalid choice. Please enter a number between [1] and [8].");
 
             if (choice is null) continue;
 
@@ -39,21 +41,24 @@ public class Program
                     await SyncMusicLibraryAsync();
                     break;
                 case "2":
-                    await SyncMusicFilesAsync();
+                    await SyncITunesAsync();
                     break;
                 case "3":
-                    await ConnectToAdbDeviceAsync();
+                    await SyncMusicFilesAsync();
                     break;
                 case "4":
-                    await UploadFileToDeviceAsync();
+                    await ConnectToAdbDeviceAsync();
                     break;
                 case "5":
-                    await DownloadFileFromDeviceAsync();
+                    await UploadFileToDeviceAsync();
                     break;
                 case "6":
-                    ParseITunesLibrary();
+                    await DownloadFileFromDeviceAsync();
                     break;
                 case "7":
+                    ParseITunesLibrary();
+                    break;
+                case "8":
                     await ParseAndroidMediaibraryAsync();
                     break;
                 case "c":
@@ -79,7 +84,6 @@ public class Program
         Console.WriteLine($"Sync Max Count: {config.SyncMaxCount}");
         Console.WriteLine($"Overwrite Already Synced: {config.OverwriteAlreadySyncred}");
         Console.WriteLine($"ADB Executable: {config.AdbExecutable}");
-        Console.WriteLine($"ITunes Library Xml: {config.ITunesLibraryXml}");
 
         ConsoleHelpers.Write($"\n");
     }
@@ -94,8 +98,7 @@ public class Program
             Console.WriteLine("[2]  Change Sync To Location");
             Console.WriteLine("[3]  Change Sync Max Count");
             Console.WriteLine("[4]  Change Overwrite Already Synced");
-            Console.WriteLine("[5]  Change ADB Executable");
-            Console.WriteLine("[6]  Change ITunes Library Xml\n");
+            Console.WriteLine("[5]  Change ADB Executable\n");
             Console.WriteLine("[X]  Exit Configuration Update\n\n");
 
             string? choice = ConsoleHelpers.GetResponse("Press [1] - [5] to continue", "Invalid choice. Please enter a number between [1] and [5].");
@@ -126,10 +129,6 @@ public class Program
                     config.AdbExecutable = ConsoleHelpers.GetResponse("Enter new ADB Executable", null) ?? string.Empty;
                     Console.WriteLine("ADB Executable updated.");
                     break;
-                case "6":
-                    config.ITunesLibraryXml = ConsoleHelpers.GetResponse("Enter new ITunes Library Xml", null) ?? string.Empty;
-                    Console.WriteLine("ITunes Library Xml updated.");
-                    break;
                 case "x":
                     config.Save("config.json");
                     ConsoleHelpers.Write("\nConfiguration updated.");
@@ -153,12 +152,11 @@ public class Program
         // Validation
         if (!Config.ValidateAdbConfig(config)) return;
         if (!await ADB.StartServerASync(config.AdbExecutable)) return;
-        if (!Config.ValidateITunesConfig(config)) return;
 
         IProgress<int> downloadProcess = new Progress<int>(percent =>
-            Console.Write($"\rDownloading Android Media Library... [{percent}%]"));
+            Console.Write($"\rDownloading Android Media Library: [{percent}%]"));
         IProgress<int> uploadProcess = new Progress<int>(percent =>
-            Console.Write($"\rUploading Android Media Library... [{percent}%]"));
+            Console.Write($"\rUploading Android Media Library: [{percent}%]"));
 
         string currentDatabaseLocation = Path.Combine(Path.GetDirectoryName(Assembly.GetExecutingAssembly().Location)!, "external.db");
         string androidDatabaseLocation = "/data/data/com.android.providers.media/databases/external.db";
@@ -173,38 +171,54 @@ public class Program
             // Refresh database
             Console.WriteLine($"Refreshing Android Media Library...\n");
 
-            await ADB.RunCommandAsync(device, "am force-stop com.android.providers.media");
-            await ADB.RunCommandAsync(device, "am start -n \"com.sec.android.app.music/.MusicActionTabActivity\"");
+            await ADB.RefreshMediaLibraryAsync(device);
             await Task.Delay(3000);
 
 
             // Download database
             await ADB.DownloadFileAsync(device, androidDatabaseLocation, currentDatabaseLocation, downloadProcess);
             Console.WriteLine("\n");
-            await Task.Delay(3000);
-
-
-            // Clear database
-            Console.WriteLine($"Clearing Android Media Library...\n");
-
-            AndroidMediaLibrary library = new();
-            await library.LoadDatabaseAsync(currentDatabaseLocation);
-
-            long playlist = await library.PlaylistManager.AddAsync(new Playlist("SSSSSSSSSS", DateTime.Now.ToUnixEpoch()));
-            long playlistMap = await library.PlaylistManager.AddTrackToPlaylistAsync(playlist, 242);
-
-            //List<Track> tracks = await library.PlaylistManager.GetAllTracksFromPlaylistAsync(playlist);
 
 
             // Sync database to iTunes
-            Console.WriteLine($"Syncing Android Media Library to iTunes...\n");
+            Console.WriteLine($"Syncing library to iTunes...\n");
+
+            iTunesApp iTunes = new();
+            AndroidMediaLibrary library = new();
+            await library.LoadDatabaseAsync(currentDatabaseLocation);
+
+            foreach (IITUserPlaylist playlist in iTunes.LibrarySource.Playlists.OfType<IITUserPlaylist>().Where(playlist => playlist.SpecialKind == ITUserPlaylistSpecialKind.ITUserPlaylistSpecialKindNone && !playlist.Smart))
+            {
+                long localPlaylist = await library.PlaylistManager.GetClearedOrAddPlaylistAsync(new(playlist.Name, null, DateTime.Now.ToUnixEpoch()));
+                foreach (IITTrack track in  playlist.Tracks)
+                {
+                    if (await library.TrackManager.GetAsync(track.Name, track.Artist) is Track localTrack)
+                        await library.PlaylistManager.AddTrackToPlaylistAsync(localPlaylist, localTrack.Id);
+                }
+            }
+
+            (long, int)[] ratedPlaylistData = new[]
+            {
+                (await library.PlaylistManager.GetClearedOrAddPlaylistAsync(new("★★★★★", "/mnt/sdcard/playlistImage/ratedFive", DateTime.Now.ToUnixEpoch())), 100),
+                (await library.PlaylistManager.GetClearedOrAddPlaylistAsync(new("★★★★☆", "/mnt/sdcard/playlistImage/ratedFour", DateTime.Now.ToUnixEpoch())), 80),
+                (await library.PlaylistManager.GetClearedOrAddPlaylistAsync(new("★★★☆☆", "/mnt/sdcard/playlistImage/ratedThree", DateTime.Now.ToUnixEpoch())), 60),
+                (await library.PlaylistManager.GetClearedOrAddPlaylistAsync(new("★★☆☆☆", "/mnt/sdcard/playlistImage/ratedTwo", DateTime.Now.ToUnixEpoch())), 40),
+                (await library.PlaylistManager.GetClearedOrAddPlaylistAsync(new("★☆☆☆☆", "/mnt/sdcard/playlistImage/ratedOne", DateTime.Now.ToUnixEpoch())), 20)
+            };
+            foreach (IITTrack track in iTunes.LibraryPlaylist.Tracks.OfType<IITTrack>())
+            {
+                long ratedPlaylist = ratedPlaylistData.FirstOrDefault(playlist => playlist.Item2 <= track.Rating).Item1;
+
+                if (await library.TrackManager.GetAsync(track.Name, track.Artist) is Track localRatedTrack)
+                    await library.PlaylistManager.AddTrackToPlaylistAsync(ratedPlaylist, localRatedTrack.Id);
+            }
 
             await library.UnloadDatabaseAsync();
-            await Task.Delay(3000);
 
 
             // Upload database
             await ADB.UploadFileAsync(device, currentDatabaseLocation, androidDatabaseLocation, null, uploadProcess);
+            await ADB.SetPermissionAsync(device, androidDatabaseLocation, 777);
             Console.WriteLine("\n");
 
             File.Delete(currentDatabaseLocation);
@@ -212,14 +226,12 @@ public class Program
 
 
             // Apply database changes
-            Console.WriteLine($"Applying Android Media Library changes to device...\n");
+            Console.WriteLine($"Applying library changes to device...\n");
 
-            await ADB.RunCommandAsync(device, "am force-stop com.android.providers.media");
-            await ADB.RunCommandAsync(device, "am start -n \"com.sec.android.app.music/.MusicActionTabActivity\"");
-            await Task.Delay(3000);
+            await ADB.RefreshMediaLibraryAsync(device);
 
 
-            ConsoleHelpers.Write($"\nMusic Library synchronized successfully.");
+            ConsoleHelpers.Write($"\nMusic library synchronized successfully.");
         }
         catch (Exception ex)
         {
@@ -228,20 +240,123 @@ public class Program
         }
     }
 
-    static async Task SyncMusicFilesAsync()
+    static async Task SyncITunesAsync()
     {
-        ConsoleHelpers.WriteClear("[2]  Sync Music Files:\n");
+        ConsoleHelpers.WriteClear("[1]  Sync iTunes:\n");
 
         // Validation
-        if (!Config.ValidateSyncConfig(config)) return;
         if (!Config.ValidateAdbConfig(config)) return;
         if (!await ADB.StartServerASync(config.AdbExecutable)) return;
+
+        IProgress<int> downloadProcess = new Progress<int>(percent =>
+            Console.Write($"\rDownloading Android Media Library: [{percent}%]"));
+        
+        string currentDatabaseLocation = Path.Combine(Path.GetDirectoryName(Assembly.GetExecutingAssembly().Location)!, "external.db");
+        string androidDatabaseLocation = "/data/data/com.android.providers.media/databases/external.db";
 
         try
         {
             // Connect to device
             (DeviceData device, string info) = await ADB.SelectDeviceAsync();
             Console.WriteLine($"Connected to ADB device: {info}.\n");
+
+
+            // Refresh database
+            Console.WriteLine($"Refreshing Android Media Library...\n");
+
+            await ADB.RefreshMediaLibraryAsync(device);
+            await Task.Delay(3000);
+
+
+            // Download database
+            await ADB.DownloadFileAsync(device, androidDatabaseLocation, currentDatabaseLocation, downloadProcess);
+            Console.WriteLine("\n");
+
+
+            // Sync database to iTunes
+            Console.WriteLine($"Syncing iTunes to library...\n");
+
+            iTunesApp iTunes = new();
+            AndroidMediaLibrary library = new();
+            await library.LoadDatabaseAsync(currentDatabaseLocation);
+
+            foreach (Playlist playlist in await library.PlaylistManager.GetAllAsync(playlist => playlist.Name != "Quick list" && playlist.Name != "Reorder playlist" && playlist.Name != "Tracks" && playlist.Name != "★★★★★" && playlist.Name != "★★★★☆" && playlist.Name != "★★★☆☆" && playlist.Name != "★★☆☆☆" && playlist.Name != "★☆☆☆☆"))
+            {
+                IITUserPlaylist iPlaylist = iTunes.GetClearedOrAddPlaylist(playlist.Name);
+                foreach (Track track in await library.PlaylistManager.GetAllTracksFromPlaylistAsync(playlist.Id))
+                {
+                    foreach (IITTrack iTrack in iTunes.LibraryPlaylist.Tracks)
+                    {
+                        if (iTrack.Name.Contains(track.Name) && track.Artist is not null && iTrack.Artist.Contains(track.Artist))
+                            iPlaylist.AddTrack(iTrack);
+                    }
+                }
+            }
+
+            foreach (IITTrack track in iTunes.LibraryPlaylist.Tracks.OfType<IITTrack>())
+                track.Rating = 0;
+
+            async Task SyncRatesAsync(
+                string playlistName,
+                int rating)
+            {
+                long? ratedPlaylist = (await library.PlaylistManager.GetAsync(playlistName))?.Id;
+                if (ratedPlaylist is not null)
+                {
+                    foreach (Track track in await library.PlaylistManager.GetAllTracksFromPlaylistAsync(ratedPlaylist.Value))
+                    {
+                        foreach (IITTrack iTrack in iTunes.LibraryPlaylist.Tracks)
+                        {
+                            if (iTrack.Name.Contains(track.Name) && track.Artist is not null && iTrack.Artist.Contains(track.Artist))
+                                iTrack.Rating = rating;
+                        }
+                    }
+                }
+            }
+
+            await SyncRatesAsync("★★★★★", 100);
+            await SyncRatesAsync("★★★★☆", 80);
+            await SyncRatesAsync("★★★☆☆", 60);
+            await SyncRatesAsync("★★☆☆☆", 40);
+            await SyncRatesAsync("★☆☆☆☆", 20);
+
+            await library.UnloadDatabaseAsync();
+
+            File.Delete(currentDatabaseLocation);
+
+
+            ConsoleHelpers.Write($"\niTunes synchronized successfully.");
+        }
+        catch (Exception ex)
+        {
+            // Failed
+            ConsoleHelpers.Write($"\nSynchronizing iTunes failed (Exception: {ex.Message}).");
+        }
+    }
+
+    static async Task SyncMusicFilesAsync()
+    {
+        ConsoleHelpers.WriteClear("[3]  Sync Music Files:\n");
+
+        // Validation
+        if (!Config.ValidateSyncConfig(config)) return;
+        if (!Config.ValidateAdbConfig(config)) return;
+        if (!await ADB.StartServerASync(config.AdbExecutable)) return;
+
+        IProgress<int> downloadProcess = new Progress<int>(percent =>
+            Console.Write($"\rDownloading Android Media Library: [{percent}%]"));
+        IProgress<int> uploadProcess = new Progress<int>(percent =>
+            Console.Write($"\rUploading Android Media Library: [{percent}%]"));
+
+        string currentDatabaseLocation = Path.Combine(Path.GetDirectoryName(Assembly.GetExecutingAssembly().Location)!, "external.db");
+        string androidDatabaseLocation = "/data/data/com.android.providers.media/databases/external.db";
+
+        try
+        {
+            // Connect to device
+            (DeviceData device, string info) = await ADB.SelectDeviceAsync();
+            Console.WriteLine($"Connected to ADB device: {info}.\n");
+
 
             // Files
             FileInfo[] files = new DirectoryInfo(config.SyncFromLocation)
@@ -267,6 +382,48 @@ public class Program
                 await ADB.UploadFileAsync(device, file.FullName, Path.Combine(config.SyncToLocation, file.Name).Replace('\\', '/'), file.LastWriteTime, progress);
                 Console.WriteLine();
             }
+
+
+            // Refresh database
+            Console.WriteLine($"\nRefreshing Android Media Library...\n");
+
+            await ADB.RefreshMediaLibraryAsync(device);
+            await Task.Delay(3000);
+
+
+            // Download database
+            await ADB.DownloadFileAsync(device, androidDatabaseLocation, currentDatabaseLocation, downloadProcess);
+            Console.WriteLine("\n");
+
+
+            // Add Tracks
+            Console.WriteLine($"Adding tracks to playlist...\n");
+
+            AndroidMediaLibrary library = new();
+            await library.LoadDatabaseAsync(currentDatabaseLocation);
+
+            long tracksPlaylist = await library.PlaylistManager.GetClearedOrAddPlaylistAsync(new("Tracks", "/mnt/sdcard/playlistImage/tracks", DateTime.Now.ToUnixEpoch()));
+            foreach (Track track in await library.TrackManager.GetAllAsync())
+                await library.PlaylistManager.AddTrackToPlaylistAsync(tracksPlaylist, track.Id);
+
+            await library.UnloadDatabaseAsync();
+
+
+            // Upload database
+            await ADB.UploadFileAsync(device, currentDatabaseLocation, androidDatabaseLocation, null, uploadProcess);
+            await ADB.SetPermissionAsync(device, androidDatabaseLocation, 777);
+            Console.WriteLine("\n");
+
+            File.Delete(currentDatabaseLocation);
+            await Task.Delay(3000);
+
+
+            // Apply database changes
+            Console.WriteLine($"Applying library changes to device...\n");
+
+            await ADB.RefreshMediaLibraryAsync(device);
+
+
             ConsoleHelpers.Write($"\nMusic Files synchronized successfully.");
         }
         catch (Exception ex)
@@ -279,7 +436,7 @@ public class Program
 
     static async Task ConnectToAdbDeviceAsync()
     {
-        ConsoleHelpers.WriteClear("[3]  Connect to ADB device:\n");
+        ConsoleHelpers.WriteClear("[4]  Connect to ADB device:\n");
 
         // Validation
         if (!Config.ValidateAdbConfig(config)) return;
@@ -300,11 +457,14 @@ public class Program
 
     static async Task UploadFileToDeviceAsync()
     {
-        ConsoleHelpers.WriteClear("[4]  Upload file to device:\n");
+        ConsoleHelpers.WriteClear("[5]  Upload file to device:\n");
 
         // Validation
         if (!Config.ValidateAdbConfig(config)) return;
         if (!await ADB.StartServerASync(config.AdbExecutable)) return;
+
+        IProgress<int> progress = new Progress<int>(percent =>
+            Console.Write($"\rUploading file: [{percent}%]"));
 
         // Get file paths
         string? filePath = ConsoleHelpers.GetResponse("Enter the path to the file you want to upload to the device", "File path can not be empty.");
@@ -321,9 +481,6 @@ public class Program
             Console.WriteLine($"\nConnected to ADB device: {info}.\n");
 
             // Sync file
-            IProgress<int> progress = new Progress<int>(percent =>
-                Console.Write($"\rUploading file: [{percent}%]"));
-
             await ADB.UploadFileAsync(device, filePath, saveToPath, null, progress);
             ConsoleHelpers.Write($"\nUploaded file to device.\n");
         }
@@ -336,11 +493,14 @@ public class Program
     
     static async Task DownloadFileFromDeviceAsync()
     {
-        ConsoleHelpers.WriteClear("[5]  Download file from device:\n");
+        ConsoleHelpers.WriteClear("[6]  Download file from device:\n");
 
         // Validation
         if (!Config.ValidateAdbConfig(config)) return;
         if (!await ADB.StartServerASync(config.AdbExecutable)) return;
+
+        IProgress<int> progress = new Progress<int>(percent =>
+            Console.Write($"\rDownloading file: [{percent}%]"));
 
         // Get file paths
         string? filePath = ConsoleHelpers.GetResponse("Enter the path to the file you want to download from the device", "File path can not be empty.");
@@ -357,9 +517,6 @@ public class Program
             Console.WriteLine($"\nConnected to ADB device: {info}.\n");
 
             // Sync file
-            IProgress<int> progress = new Progress<int>(percent =>
-                Console.Write($"\rDownloading file: [{percent}%]"));
-
             await ADB.DownloadFileAsync(device, filePath, saveToPath, progress);
             ConsoleHelpers.Write($"\nDownloaded file from device.\n");
         }
@@ -373,17 +530,13 @@ public class Program
 
     static void ParseITunesLibrary()
     {
-        ConsoleHelpers.WriteClear("[6]  Parse iTunes Library:\n");
-
-        // Validation
-        if (!Config.ValidateITunesConfig(config)) return;
+        ConsoleHelpers.WriteClear("[7]  Parse iTunes Library:\n");
 
         try
         {
             iTunesApp iTunes = new();
 
-            IEnumerable<IITPlaylist> playlists = iTunes.LibrarySource.Playlists.Cast<IITPlaylist>().Where(playlist => 
-                playlist.Kind == ITPlaylistKind.ITPlaylistKindUser && playlist.Name != "Music" && playlist.Name != "Movies" && playlist.Name != "TV Shows" && playlist.Name != "Podcasts" &&  playlist.Name != "Audiobooks");
+            IEnumerable<IITUserPlaylist> playlists = iTunes.LibrarySource.Playlists.OfType<IITUserPlaylist>().Where(playlist => playlist.SpecialKind == ITUserPlaylistSpecialKind.ITUserPlaylistSpecialKindNone);
             //IEnumerable<IITTrack> tracks = iTunes.LibraryPlaylist.Tracks.Cast<IITTrack>();
 
             Console.WriteLine($"Track count: {iTunes.LibraryPlaylist.Tracks.Count}");
@@ -400,7 +553,7 @@ public class Program
 
     static async Task ParseAndroidMediaibraryAsync()
     {
-        ConsoleHelpers.WriteClear("[7]  Parse Android Media Library:\n");
+        ConsoleHelpers.WriteClear("[8]  Parse Android Media Library:\n");
 
         // Get file paths
         string? filePath = ConsoleHelpers.GetResponse("Enter the path to the Android Media external database", "File path can not be empty.");
