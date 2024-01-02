@@ -1,0 +1,13 @@
+FORCE DATABASE UPDATE:
+adb shell am broadcast -a com.samsung.intent.action.MTP_FILE_SCAN -n com.android.providers.media/.MediaScannerReceiver
+adb shell am broadcast -n com.android.providers.media/.MediaScannerReceiver
+adb shell am startservice -n com.android.providers.media/.MediaScannerService
+
+LIST ACTIVITIES:
+adb shell dumpsys package com.android.providers.media
+
+BOOT:
+adb shell am start -n "com.sec.android.app.music/.MusicActionTabActivity"
+
+KILL:
+adb shell am force-stop com.android.providers.media
