@@ -16,6 +16,19 @@ public static class ConsoleHelpers
         Console.WriteLine($"{message}\n");
     }
 
+    public static void WriteClearLine(
+        string message)
+    {
+        if (Console.CursorLeft > message.Length)
+        {
+            Console.SetCursorPosition(0, Console.CursorTop);
+            Console.Write(new string(' ', Console.WindowWidth));
+            Console.SetCursorPosition(0, Console.CursorTop);
+        }
+
+        Console.Write($"\r{message}");
+    }
+
 
     public static string? GetResponse(
         string message,
