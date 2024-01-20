@@ -51,7 +51,7 @@ public class PlaylistManager : TableManager<Playlist>
     }
 
 
-    public async Task<List<Track>> GetAllTracksFromPlaylistAsync(
+    public async Task<Track[]> GetAllTracksFromPlaylistAsync(
         long playlistId)
     {
         AsyncTableQuery<PlaylistMap> maps = library.Get<PlaylistMap>(map => map.PlaylistId == playlistId);
@@ -59,12 +59,11 @@ public class PlaylistManager : TableManager<Playlist>
         List<Track> tracks = new();
         foreach (PlaylistMap map in await maps.ToArrayAsync())
         {
-            Track? track = await library.TrackManager.GetAsync(map.TrackId);
-            if (track is not null)
+            if (await library.TrackManager.GetAsync(map.TrackId) is Track track)
                 tracks.Add(track);
         }
         
-        return tracks;
+        return tracks.ToArray();
     }
 
     public async Task<long> AddTrackToPlaylistAsync(
