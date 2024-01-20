@@ -2,8 +2,6 @@
 using iTunesLib;
 using MusicSync.AndroidMedia;
 using MusicSync.AndroidMedia.Models;
-using Newtonsoft.Json.Bson;
-using System.Reflection;
 
 namespace MusicSync;
 
@@ -19,8 +17,8 @@ public class Program
         {
             ConsoleHelpers.WriteClear("Music Sync:\n");
 
-            Console.WriteLine("[1]  Sync Music Library");
-            Console.WriteLine("[2]  Sync iTunes");
+            Console.WriteLine("[1]  Sync Music Library to iTunes");
+            Console.WriteLine("[2]  Sync iTunes to Music Library");
             Console.WriteLine("[3]  Sync Music Files\n");
             Console.WriteLine("[4]  Connect to ADB device");
             Console.WriteLine("[5]  Upload file to device");
@@ -75,7 +73,8 @@ public class Program
     }
 
 
-    static void DisplayConfiguration(Config config)
+    static void DisplayConfiguration(
+        Config config)
     {
         ConsoleHelpers.WriteClear("[C]  Display Current Configuration:\n");
 
@@ -88,7 +87,8 @@ public class Program
         ConsoleHelpers.Write($"\n");
     }
 
-    static void EditConfiguration(Config config)
+    static void EditConfiguration(
+        Config config)
     {
         while (true)
         {
@@ -147,18 +147,18 @@ public class Program
 
     static async Task SyncMusicLibraryAsync()
     {
-        ConsoleHelpers.WriteClear("[1]  Sync Music Library:\n");
+        ConsoleHelpers.WriteClear("[1]  Sync Music Library to iTunes:\n");
 
         // Validation
         if (!Config.ValidateAdbConfig(config)) return;
         if (!await ADB.StartServerASync(config.AdbExecutable)) return;
 
         IProgress<int> downloadProcess = new Progress<int>(percent =>
-            Console.Write($"\rDownloading Android Media Library: [{percent}%]"));
+            ConsoleHelpers.WriteClearLine($"Downloading Android Media Library: [{percent}%]"));
         IProgress<int> uploadProcess = new Progress<int>(percent =>
-            Console.Write($"\rUploading Android Media Library: [{percent}%]"));
+            ConsoleHelpers.WriteClearLine($"Uploading Android Media Library: [{percent}%]"));
 
-        string currentDatabaseLocation = Path.Combine(Path.GetDirectoryName(Assembly.GetExecutingAssembly().Location)!, "external.db");
+        string currentDatabaseLocation = Path.Combine(Environment.CurrentDirectory, "external.db");
         string androidDatabaseLocation = "/data/data/com.android.providers.media/databases/external.db";
 
         try
@@ -182,22 +182,18 @@ public class Program
 
             // Sync database to iTunes
             Console.WriteLine($"Syncing library to iTunes...\n");
-
             iTunesApp iTunes = new();
             AndroidMediaLibrary library = new();
             await library.LoadDatabaseAsync(currentDatabaseLocation);
 
-            foreach (IITUserPlaylist playlist in iTunes.LibrarySource.Playlists.OfType<IITUserPlaylist>().Where(playlist => playlist.SpecialKind == ITUserPlaylistSpecialKind.ITUserPlaylistSpecialKindNone && !playlist.Smart))
-            {
-                long localPlaylist = await library.PlaylistManager.GetClearedOrAddPlaylistAsync(new(playlist.Name, null, DateTime.Now.ToUnixEpoch()));
-                foreach (IITTrack track in  playlist.Tracks)
-                {
-                    if (await library.TrackManager.GetAsync(track.Name, track.Artist) is Track localTrack)
-                        await library.PlaylistManager.AddTrackToPlaylistAsync(localPlaylist, localTrack.Id);
-                }
-            }
+            Console.WriteLine($"Preparing synchronization...\n");
+            IEnumerable<IITTrack> tracks = iTunes.LibraryPlaylist.Tracks.OfType<IITTrack>().Where(track => track.Rating >= 20);
+            int trackCount = tracks.Count();
+            Track[] localTracks = await library.TrackManager.GetAllAsync();
 
-            (long, int)[] ratedPlaylistData = new[]
+            IEnumerable<IITUserPlaylist> playlists = iTunes.LibrarySource.Playlists.OfType<IITUserPlaylist>().Where(playlist => playlist.SpecialKind == ITUserPlaylistSpecialKind.ITUserPlaylistSpecialKindNone && !playlist.Smart);
+            int playlistCount = playlists.Count();
+            (long id, int rating)[] ratedPlaylistData = new[]
             {
                 (await library.PlaylistManager.GetClearedOrAddPlaylistAsync(new("★★★★★", "/mnt/sdcard/playlistImage/ratedFive", DateTime.Now.ToUnixEpoch())), 100),
                 (await library.PlaylistManager.GetClearedOrAddPlaylistAsync(new("★★★★☆", "/mnt/sdcard/playlistImage/ratedFour", DateTime.Now.ToUnixEpoch())), 80),
@@ -205,13 +201,46 @@ public class Program
                 (await library.PlaylistManager.GetClearedOrAddPlaylistAsync(new("★★☆☆☆", "/mnt/sdcard/playlistImage/ratedTwo", DateTime.Now.ToUnixEpoch())), 40),
                 (await library.PlaylistManager.GetClearedOrAddPlaylistAsync(new("★☆☆☆☆", "/mnt/sdcard/playlistImage/ratedOne", DateTime.Now.ToUnixEpoch())), 20)
             };
-            foreach (IITTrack track in iTunes.LibraryPlaylist.Tracks.OfType<IITTrack>())
-            {
-                long ratedPlaylist = ratedPlaylistData.FirstOrDefault(playlist => playlist.Item2 <= track.Rating).Item1;
+            long favouritesPlaylist = await library.PlaylistManager.GetClearedOrAddPlaylistAsync(new("♥", "/mnt/sdcard/playlistImage/favourites", DateTime.Now.ToUnixEpoch()));
 
-                if (await library.TrackManager.GetAsync(track.Name, track.Artist) is Track localRatedTrack)
-                    await library.PlaylistManager.AddTrackToPlaylistAsync(ratedPlaylist, localRatedTrack.Id);
+            for (int currentPlaylist = 0; currentPlaylist < playlistCount; currentPlaylist++)
+            {
+                ConsoleHelpers.WriteClearLine($"Syncing playlists: [{currentPlaylist + 1}/{playlistCount}]");
+                IITUserPlaylist playlist = playlists.ElementAt(currentPlaylist);
+
+                IEnumerable<IITTrack> playlistTracks = playlist.Tracks.OfType<IITTrack>();
+                int playlistTrackCount = playlistTracks.Count();
+
+                long localPlaylist = await library.PlaylistManager.GetClearedOrAddPlaylistAsync(new(playlist.Name, null, DateTime.Now.ToUnixEpoch()));
+
+                for (int currentPlaylistTrack = 0; currentPlaylistTrack < playlistTrackCount; currentPlaylistTrack++)
+                {
+                    ConsoleHelpers.WriteClearLine($"Syncing playlists: [{currentPlaylist + 1}/{playlistCount}] [{currentPlaylistTrack + 1}/{playlistTrackCount}]");
+                    IITTrack track = playlistTracks.ElementAt(currentPlaylistTrack);
+
+                    if (localTracks.FirstOrDefault(local => local.Name == track.Name && local.Artist == track.Artist) is not Track localTrack)
+                        continue;
+
+                    await library.PlaylistManager.AddTrackToPlaylistAsync(localPlaylist, localTrack.Id);
+                }
             }
+            Console.WriteLine("\n");
+
+            for (int currentTrack = 0; currentTrack < trackCount; currentTrack++)
+            {
+                ConsoleHelpers.WriteClearLine($"Syncing ratings and favourites: [{currentTrack + 1}/{trackCount}]");
+                IITTrack track = tracks.ElementAt(currentTrack);
+
+                if (localTracks.FirstOrDefault(local => local.Name == track.Name && local.Artist == track.Artist) is not Track localTrack)
+                    continue;
+
+                await library.PlaylistManager.AddTrackToPlaylistAsync(ratedPlaylistData.FirstOrDefault(playlist => playlist.rating <= track.Rating).id, localTrack.Id);
+
+                if (track.Rating >= 60)
+                    await library.PlaylistManager.AddTrackToPlaylistAsync(favouritesPlaylist, localTrack.Id);
+
+            }
+            Console.WriteLine("\n");
 
             await library.UnloadDatabaseAsync();
 
@@ -242,16 +271,16 @@ public class Program
 
     static async Task SyncITunesAsync()
     {
-        ConsoleHelpers.WriteClear("[1]  Sync iTunes:\n");
+        ConsoleHelpers.WriteClear("[1]  Sync iTunes to Media Library:\n");
 
         // Validation
         if (!Config.ValidateAdbConfig(config)) return;
         if (!await ADB.StartServerASync(config.AdbExecutable)) return;
 
         IProgress<int> downloadProcess = new Progress<int>(percent =>
-            Console.Write($"\rDownloading Android Media Library: [{percent}%]"));
+            ConsoleHelpers.WriteClearLine($"Downloading Android Media Library: [{percent}%]"));
         
-        string currentDatabaseLocation = Path.Combine(Path.GetDirectoryName(Assembly.GetExecutingAssembly().Location)!, "external.db");
+        string currentDatabaseLocation = Path.Combine(Environment.CurrentDirectory, "external.db");
         string androidDatabaseLocation = "/data/data/com.android.providers.media/databases/external.db";
 
         try
@@ -275,50 +304,71 @@ public class Program
 
             // Sync database to iTunes
             Console.WriteLine($"Syncing iTunes to library...\n");
-
             iTunesApp iTunes = new();
             AndroidMediaLibrary library = new();
             await library.LoadDatabaseAsync(currentDatabaseLocation);
 
-            foreach (Playlist playlist in await library.PlaylistManager.GetAllAsync(playlist => playlist.Name != "Quick list" && playlist.Name != "Reorder playlist" && playlist.Name != "Tracks" && playlist.Name != "★★★★★" && playlist.Name != "★★★★☆" && playlist.Name != "★★★☆☆" && playlist.Name != "★★☆☆☆" && playlist.Name != "★☆☆☆☆"))
+            Console.WriteLine($"Preparing synchronization...\n");
+            IEnumerable<IITTrack> iTracks = iTunes.LibraryPlaylist.Tracks.OfType<IITTrack>();
+
+            Playlist[] playlists = await library.PlaylistManager.GetAllAsync(playlist => playlist.Name != "Quick list" && playlist.Name != "Reorder playlist" && playlist.Name != "♬" && playlist.Name != "♥" && playlist.Name != "★★★★★" && playlist.Name != "★★★★☆" && playlist.Name != "★★★☆☆" && playlist.Name != "★★☆☆☆" && playlist.Name != "★☆☆☆☆");
+            (Playlist? playlist, int rating)[] ratedPlaylistData = new[]
             {
+                (await library.PlaylistManager.GetAsync("★☆☆☆☆"), 20),
+                (await library.PlaylistManager.GetAsync("★★☆☆☆"), 40),
+                (await library.PlaylistManager.GetAsync("★★★☆☆"), 60),
+                (await library.PlaylistManager.GetAsync("★★★★☆"), 80),
+                (await library.PlaylistManager.GetAsync("★★★★★"), 100),
+            };
+
+            for (int currentPlaylist = 0; currentPlaylist < playlists.Length; currentPlaylist++)
+            {
+                ConsoleHelpers.WriteClearLine($"Syncing playlists: [{currentPlaylist + 1}/{playlists.Length}]");
+                Playlist playlist = playlists[currentPlaylist];
+
+                Track[] playlistTracks = await library.PlaylistManager.GetAllTracksFromPlaylistAsync(playlist.Id);
+
                 IITUserPlaylist iPlaylist = iTunes.GetClearedOrAddPlaylist(playlist.Name);
-                foreach (Track track in await library.PlaylistManager.GetAllTracksFromPlaylistAsync(playlist.Id))
+
+                for (int currentPlaylistTrack = 0; currentPlaylistTrack < playlistTracks.Length; currentPlaylistTrack++)
                 {
-                    foreach (IITTrack iTrack in iTunes.LibraryPlaylist.Tracks)
-                    {
-                        if (iTrack.Name.Contains(track.Name) && track.Artist is not null && iTrack.Artist.Contains(track.Artist))
-                            iPlaylist.AddTrack(iTrack);
-                    }
+                    ConsoleHelpers.WriteClearLine($"Syncing playlists: [{currentPlaylist + 1}/{playlists.Length}] [{currentPlaylistTrack + 1}/{playlistTracks.Length}]");
+                    Track track = playlistTracks[currentPlaylistTrack];
+
+                    if (iTracks.FirstOrDefault(i => i.Name == track.Name && i.Artist == track.Artist) is not IITTrack iTrack)
+                        continue;
+
+                    iPlaylist.AddTrack(iTrack);
                 }
             }
+            Console.WriteLine("\n");
 
-            foreach (IITTrack track in iTunes.LibraryPlaylist.Tracks.OfType<IITTrack>())
+            Console.WriteLine($"Clearing ratings...\n");
+            foreach (IITTrack track in iTracks)
                 track.Rating = 0;
 
-            async Task SyncRatesAsync(
-                string playlistName,
-                int rating)
+            for (int currentRatedPlaylist = 0; currentRatedPlaylist < ratedPlaylistData.Length; currentRatedPlaylist++)
             {
-                long? ratedPlaylist = (await library.PlaylistManager.GetAsync(playlistName))?.Id;
-                if (ratedPlaylist is not null)
+                ConsoleHelpers.WriteClearLine($"Syncing ratings: [{currentRatedPlaylist + 1}/{ratedPlaylistData.Length}]");
+                (Playlist? playlist, int rating) ratedPlaylist = ratedPlaylistData[currentRatedPlaylist];
+
+                if (ratedPlaylist.playlist is null)
+                    continue;
+
+                Track[] ratedPlaylistTracks = await library.PlaylistManager.GetAllTracksFromPlaylistAsync(ratedPlaylist.playlist.Id);
+
+                for (int currentRatedPlaylistTrack = 0; currentRatedPlaylistTrack < ratedPlaylistTracks.Length; currentRatedPlaylistTrack++)
                 {
-                    foreach (Track track in await library.PlaylistManager.GetAllTracksFromPlaylistAsync(ratedPlaylist.Value))
-                    {
-                        foreach (IITTrack iTrack in iTunes.LibraryPlaylist.Tracks)
-                        {
-                            if (iTrack.Name.Contains(track.Name) && track.Artist is not null && iTrack.Artist.Contains(track.Artist))
-                                iTrack.Rating = rating;
-                        }
-                    }
+                    ConsoleHelpers.WriteClearLine($"Syncing ratings: [{currentRatedPlaylist + 1}/{ratedPlaylistData.Length}] [{currentRatedPlaylistTrack + 1}/{ratedPlaylistTracks.Length}]");
+                    Track track = ratedPlaylistTracks[currentRatedPlaylistTrack];
+
+                    if (iTracks.FirstOrDefault(i => i.Name == track.Name && i.Artist == track.Artist) is not IITTrack iTrack)
+                        continue;
+
+                    iTrack.Rating = ratedPlaylist.rating;
                 }
             }
-
-            await SyncRatesAsync("★★★★★", 100);
-            await SyncRatesAsync("★★★★☆", 80);
-            await SyncRatesAsync("★★★☆☆", 60);
-            await SyncRatesAsync("★★☆☆☆", 40);
-            await SyncRatesAsync("★☆☆☆☆", 20);
+            Console.WriteLine("\n");
 
             await library.UnloadDatabaseAsync();
 
@@ -344,11 +394,11 @@ public class Program
         if (!await ADB.StartServerASync(config.AdbExecutable)) return;
 
         IProgress<int> downloadProcess = new Progress<int>(percent =>
-            Console.Write($"\rDownloading Android Media Library: [{percent}%]"));
+            ConsoleHelpers.WriteClearLine($"Downloading Android Media Library: [{percent}%]"));
         IProgress<int> uploadProcess = new Progress<int>(percent =>
-            Console.Write($"\rUploading Android Media Library: [{percent}%]"));
+            ConsoleHelpers.WriteClearLine($"Uploading Android Media Library: [{percent}%]"));
 
-        string currentDatabaseLocation = Path.Combine(Path.GetDirectoryName(Assembly.GetExecutingAssembly().Location)!, "external.db");
+        string currentDatabaseLocation = Path.Combine(Environment.CurrentDirectory, "external.db");
         string androidDatabaseLocation = "/data/data/com.android.providers.media/databases/external.db";
 
         try
@@ -377,7 +427,7 @@ public class Program
                 }
 
                 IProgress<int> progress = new Progress<int>(percent =>
-                    Console.Write($"\r[{i + 1}/{files.Length}]  Synchronizing '{file.Name}': [{percent}%]"));
+                    ConsoleHelpers.WriteClearLine($"[{i + 1}/{files.Length}]  Synchronizing '{file.Name}': [{percent}%]"));
 
                 await ADB.UploadFileAsync(device, file.FullName, Path.Combine(config.SyncToLocation, file.Name).Replace('\\', '/'), file.LastWriteTime, progress);
                 Console.WriteLine();
@@ -397,14 +447,22 @@ public class Program
 
 
             // Add Tracks
-            Console.WriteLine($"Adding tracks to playlist...\n");
-
+            Console.WriteLine($"Updating library...\n");
             AndroidMediaLibrary library = new();
             await library.LoadDatabaseAsync(currentDatabaseLocation);
 
-            long tracksPlaylist = await library.PlaylistManager.GetClearedOrAddPlaylistAsync(new("Tracks", "/mnt/sdcard/playlistImage/tracks", DateTime.Now.ToUnixEpoch()));
-            foreach (Track track in await library.TrackManager.GetAllAsync())
+            Console.WriteLine($"Preparing update...\n");
+            long tracksPlaylist = await library.PlaylistManager.GetClearedOrAddPlaylistAsync(new("♬", "/mnt/sdcard/playlistImage/tracks", DateTime.Now.ToUnixEpoch()));
+            Track[] tracks = await library.TrackManager.GetAllAsync();
+
+            for (int currentTrack = 0; currentTrack < tracks.Length; currentTrack++)
+            {
+                ConsoleHelpers.WriteClearLine($"Adding tracks to library: [{currentTrack + 1}/{tracks.Length}]");
+                Track track = tracks[currentTrack];
+
                 await library.PlaylistManager.AddTrackToPlaylistAsync(tracksPlaylist, track.Id);
+            }
+            Console.WriteLine("\n");
 
             await library.UnloadDatabaseAsync();
 
@@ -420,7 +478,6 @@ public class Program
 
             // Apply database changes
             Console.WriteLine($"Applying library changes to device...\n");
-
             await ADB.RefreshMediaLibraryAsync(device);
 
 
@@ -464,7 +521,7 @@ public class Program
         if (!await ADB.StartServerASync(config.AdbExecutable)) return;
 
         IProgress<int> progress = new Progress<int>(percent =>
-            Console.Write($"\rUploading file: [{percent}%]"));
+            ConsoleHelpers.WriteClearLine($"Uploading file: [{percent}%]"));
 
         // Get file paths
         string? filePath = ConsoleHelpers.GetResponse("Enter the path to the file you want to upload to the device", "File path can not be empty.");
@@ -500,7 +557,7 @@ public class Program
         if (!await ADB.StartServerASync(config.AdbExecutable)) return;
 
         IProgress<int> progress = new Progress<int>(percent =>
-            Console.Write($"\rDownloading file: [{percent}%]"));
+            ConsoleHelpers.WriteClearLine($"Downloading file: [{percent}%]"));
 
         // Get file paths
         string? filePath = ConsoleHelpers.GetResponse("Enter the path to the file you want to download from the device", "File path can not be empty.");
