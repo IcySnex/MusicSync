@@ -2,6 +2,8 @@
 using iTunesLib;
 using MusicSync.AndroidMedia;
 using MusicSync.AndroidMedia.Models;
+using System.Diagnostics;
+using System.Linq;
 
 namespace MusicSync;
 
@@ -17,46 +19,50 @@ public class Program
         {
             ConsoleHelpers.WriteClear("Music Sync:\n");
 
-            Console.WriteLine("[1]  Sync Music Library to iTunes");
-            Console.WriteLine("[2]  Sync iTunes to Music Library");
-            Console.WriteLine("[3]  Sync Music Files\n");
-            Console.WriteLine("[4]  Connect to ADB device");
-            Console.WriteLine("[5]  Upload file to device");
-            Console.WriteLine("[6]  Download file from device\n");
-            Console.WriteLine("[7]  Parse iTunes Library");
-            Console.WriteLine("[8]  Parse Android Media Library\n");
+            Console.WriteLine("[1]  Sync Android Media Library to iTunes");
+            Console.WriteLine("[2]  Sync iTunes to Android Media Library\n");
+            Console.WriteLine("[3]  Sync Music Files to Android");
+            Console.WriteLine("[4]  Sync Music Files to iTunes\n");
+            Console.WriteLine("[5]  Connect to ADB device");
+            Console.WriteLine("[6]  Upload file to device");
+            Console.WriteLine("[7]  Download file from device\n");
+            Console.WriteLine("[8]  Parse iTunes Library");
+            Console.WriteLine("[9]  Parse Android Media Library\n");
             Console.WriteLine("[C]  Display Configuration");
             Console.WriteLine("[E]  Edit Configuration\n");
             Console.WriteLine("[X]  Exit\n\n");
 
-            string? choice = ConsoleHelpers.GetResponse("Press [1] - [8] to continue", "Invalid choice. Please enter a number between [1] and [8].");
+            string? choice = ConsoleHelpers.GetResponse("Press [1] - [9] to continue", "Invalid choice. Please enter a number between [1] and [9].");
 
             if (choice is null) continue;
 
             switch (choice.ToLower())
             {
                 case "1":
-                    await SyncMusicLibraryAsync();
+                    await SyncAndroidMediaLibraryAsync();
                     break;
                 case "2":
                     await SyncITunesAsync();
                     break;
                 case "3":
-                    await SyncMusicFilesAsync();
+                    await SyncMusicFilesToAndroidAsync();
                     break;
                 case "4":
-                    await ConnectToAdbDeviceAsync();
+                    SyncMusicFilesToITunes();
                     break;
                 case "5":
-                    await UploadFileToDeviceAsync();
+                    await ConnectToAdbDeviceAsync();
                     break;
                 case "6":
-                    await DownloadFileFromDeviceAsync();
+                    await UploadFileToDeviceAsync();
                     break;
                 case "7":
-                    ParseITunesLibrary();
+                    await DownloadFileFromDeviceAsync();
                     break;
                 case "8":
+                    ParseITunesLibrary();
+                    break;
+                case "9":
                     await ParseAndroidMediaibraryAsync();
                     break;
                 case "c":
@@ -145,9 +151,9 @@ public class Program
     }
 
 
-    static async Task SyncMusicLibraryAsync()
+    static async Task SyncAndroidMediaLibraryAsync()
     {
-        ConsoleHelpers.WriteClear("[1]  Sync Music Library to iTunes:\n");
+        ConsoleHelpers.WriteClear("[1]  Sync Android Media Library to iTunes:\n");
 
         // Validation
         if (!Config.ValidateAdbConfig(config)) return;
@@ -159,6 +165,7 @@ public class Program
             ConsoleHelpers.WriteClearLine($"Uploading Android Media Library: [{percent}%]"));
 
         string currentDatabaseLocation = Path.Combine(Environment.CurrentDirectory, "external.db");
+        string backupDatabaseLocation = Path.Combine(Environment.CurrentDirectory, "backups", "Android Media Library", $"external [{DateTime.Now:yyyy-MM-dd-HH-mm}].db");
         string androidDatabaseLocation = "/data/data/com.android.providers.media/databases/external.db";
 
         try
@@ -179,6 +186,10 @@ public class Program
             await ADB.DownloadFileAsync(device, androidDatabaseLocation, currentDatabaseLocation, downloadProcess);
             Console.WriteLine("\n");
 
+            if (!Directory.Exists(Path.GetDirectoryName(backupDatabaseLocation)))
+                Directory.CreateDirectory(Path.GetDirectoryName(backupDatabaseLocation)!);
+            File.Copy(currentDatabaseLocation, backupDatabaseLocation, true);
+
 
             // Sync database to iTunes
             Console.WriteLine($"Syncing library to iTunes...\n");
@@ -187,12 +198,10 @@ public class Program
             await library.LoadDatabaseAsync(currentDatabaseLocation);
 
             Console.WriteLine($"Preparing synchronization...\n");
-            IEnumerable<IITTrack> tracks = iTunes.LibraryPlaylist.Tracks.OfType<IITTrack>().Where(track => track.Rating >= 20);
-            int trackCount = tracks.Count();
+            IITFileOrCDTrack[] tracks = iTunes.LibraryPlaylist.Tracks.OfType<IITFileOrCDTrack>().Where(track => track.Rating >= 20).ToArray();
             Track[] localTracks = await library.TrackManager.GetAllAsync();
 
-            IEnumerable<IITUserPlaylist> playlists = iTunes.LibrarySource.Playlists.OfType<IITUserPlaylist>().Where(playlist => playlist.SpecialKind == ITUserPlaylistSpecialKind.ITUserPlaylistSpecialKindNone && !playlist.Smart);
-            int playlistCount = playlists.Count();
+            IITUserPlaylist[] playlists = iTunes.LibrarySource.Playlists.OfType<IITUserPlaylist>().Where(playlist => playlist.SpecialKind == ITUserPlaylistSpecialKind.ITUserPlaylistSpecialKindNone && !playlist.Smart).ToArray();
             (long id, int rating)[] ratedPlaylistData = new[]
             {
                 (await library.PlaylistManager.GetClearedOrAddPlaylistAsync(new("★★★★★", "/mnt/sdcard/playlistImage/ratedFive", DateTime.Now.ToUnixEpoch())), 100),
@@ -203,20 +212,20 @@ public class Program
             };
             long favouritesPlaylist = await library.PlaylistManager.GetClearedOrAddPlaylistAsync(new("♥", "/mnt/sdcard/playlistImage/favourites", DateTime.Now.ToUnixEpoch()));
 
-            for (int currentPlaylist = 0; currentPlaylist < playlistCount; currentPlaylist++)
+            for (int currentPlaylist = 0; currentPlaylist < playlists.Length; currentPlaylist++)
             {
-                ConsoleHelpers.WriteClearLine($"Syncing playlists: [{currentPlaylist + 1}/{playlistCount}]");
-                IITUserPlaylist playlist = playlists.ElementAt(currentPlaylist);
+                ConsoleHelpers.WriteClearLine($"Syncing playlists: [{currentPlaylist + 1}/{playlists.Length}]");
+                IITUserPlaylist playlist = playlists[currentPlaylist];
 
-                IEnumerable<IITTrack> playlistTracks = playlist.Tracks.OfType<IITTrack>();
+                IITFileOrCDTrack[] playlistTracks = playlist.Tracks.OfType<IITFileOrCDTrack>().ToArray();
                 int playlistTrackCount = playlistTracks.Count();
 
                 long localPlaylist = await library.PlaylistManager.GetClearedOrAddPlaylistAsync(new(playlist.Name, null, DateTime.Now.ToUnixEpoch()));
 
                 for (int currentPlaylistTrack = 0; currentPlaylistTrack < playlistTrackCount; currentPlaylistTrack++)
                 {
-                    ConsoleHelpers.WriteClearLine($"Syncing playlists: [{currentPlaylist + 1}/{playlistCount}] [{currentPlaylistTrack + 1}/{playlistTrackCount}]");
-                    IITTrack track = playlistTracks.ElementAt(currentPlaylistTrack);
+                    ConsoleHelpers.WriteClearLine($"Syncing playlists: [{currentPlaylist + 1}/{playlists.Length}] [{currentPlaylistTrack + 1}/{playlistTrackCount}]");
+                    IITFileOrCDTrack track = playlistTracks[currentPlaylistTrack];
 
                     if (localTracks.FirstOrDefault(local => local.Name == track.Name && local.Artist == track.Artist) is not Track localTrack)
                         continue;
@@ -226,10 +235,10 @@ public class Program
             }
             Console.WriteLine("\n");
 
-            for (int currentTrack = 0; currentTrack < trackCount; currentTrack++)
+            for (int currentTrack = 0; currentTrack < tracks.Length; currentTrack++)
             {
-                ConsoleHelpers.WriteClearLine($"Syncing ratings and favourites: [{currentTrack + 1}/{trackCount}]");
-                IITTrack track = tracks.ElementAt(currentTrack);
+                ConsoleHelpers.WriteClearLine($"Syncing ratings and favourites: [{currentTrack + 1}/{tracks.Length}]");
+                IITFileOrCDTrack track = tracks[currentTrack];
 
                 if (localTracks.FirstOrDefault(local => local.Name == track.Name && local.Artist == track.Artist) is not Track localTrack)
                     continue;
@@ -271,7 +280,7 @@ public class Program
 
     static async Task SyncITunesAsync()
     {
-        ConsoleHelpers.WriteClear("[1]  Sync iTunes to Media Library:\n");
+        ConsoleHelpers.WriteClear("[1]  Sync iTunes to Android Media Library:\n");
 
         // Validation
         if (!Config.ValidateAdbConfig(config)) return;
@@ -308,8 +317,16 @@ public class Program
             AndroidMediaLibrary library = new();
             await library.LoadDatabaseAsync(currentDatabaseLocation);
 
+            string iTunesDatabaseLocation = Path.Combine(Path.GetDirectoryName(iTunes.LibraryXMLPath)!, "iTunes Library.itl");
+            string backupDatabaseLocation = Path.Combine(Environment.CurrentDirectory, "backups", "iTunes", $"iTunes Library [{DateTime.Now:yyyy-MM-dd-HH-mm}].itl");
+
+            if (!Directory.Exists(Path.GetDirectoryName(backupDatabaseLocation)))
+                Directory.CreateDirectory(Path.GetDirectoryName(backupDatabaseLocation)!);
+            File.Copy(iTunesDatabaseLocation, backupDatabaseLocation, true);
+
+
             Console.WriteLine($"Preparing synchronization...\n");
-            IEnumerable<IITTrack> iTracks = iTunes.LibraryPlaylist.Tracks.OfType<IITTrack>();
+            IITFileOrCDTrack[] iTracks = iTunes.LibraryPlaylist.Tracks.OfType<IITFileOrCDTrack>().ToArray();
 
             Playlist[] playlists = await library.PlaylistManager.GetAllAsync(playlist => playlist.Name != "Quick list" && playlist.Name != "Reorder playlist" && playlist.Name != "♬" && playlist.Name != "♥" && playlist.Name != "★★★★★" && playlist.Name != "★★★★☆" && playlist.Name != "★★★☆☆" && playlist.Name != "★★☆☆☆" && playlist.Name != "★☆☆☆☆");
             (Playlist? playlist, int rating)[] ratedPlaylistData = new[]
@@ -335,7 +352,7 @@ public class Program
                     ConsoleHelpers.WriteClearLine($"Syncing playlists: [{currentPlaylist + 1}/{playlists.Length}] [{currentPlaylistTrack + 1}/{playlistTracks.Length}]");
                     Track track = playlistTracks[currentPlaylistTrack];
 
-                    if (iTracks.FirstOrDefault(i => i.Name == track.Name && i.Artist == track.Artist) is not IITTrack iTrack)
+                    if (iTracks.FirstOrDefault(i => i.Name == track.Name && i.Artist == track.Artist) is not IITFileOrCDTrack iTrack)
                         continue;
 
                     iPlaylist.AddTrack(iTrack);
@@ -344,7 +361,7 @@ public class Program
             Console.WriteLine("\n");
 
             Console.WriteLine($"Clearing ratings...\n");
-            foreach (IITTrack track in iTracks)
+            foreach (IITFileOrCDTrack track in iTracks)
                 track.Rating = 0;
 
             for (int currentRatedPlaylist = 0; currentRatedPlaylist < ratedPlaylistData.Length; currentRatedPlaylist++)
@@ -362,7 +379,7 @@ public class Program
                     ConsoleHelpers.WriteClearLine($"Syncing ratings: [{currentRatedPlaylist + 1}/{ratedPlaylistData.Length}] [{currentRatedPlaylistTrack + 1}/{ratedPlaylistTracks.Length}]");
                     Track track = ratedPlaylistTracks[currentRatedPlaylistTrack];
 
-                    if (iTracks.FirstOrDefault(i => i.Name == track.Name && i.Artist == track.Artist) is not IITTrack iTrack)
+                    if (iTracks.FirstOrDefault(i => i.Name == track.Name && i.Artist == track.Artist) is not IITFileOrCDTrack iTrack)
                         continue;
 
                     iTrack.Rating = ratedPlaylist.rating;
@@ -384,9 +401,10 @@ public class Program
         }
     }
 
-    static async Task SyncMusicFilesAsync()
+
+    static async Task SyncMusicFilesToAndroidAsync()
     {
-        ConsoleHelpers.WriteClear("[3]  Sync Music Files:\n");
+        ConsoleHelpers.WriteClear("[3]  Sync Music Files to Android:\n");
 
         // Validation
         if (!Config.ValidateSyncConfig(config)) return;
@@ -399,6 +417,7 @@ public class Program
             ConsoleHelpers.WriteClearLine($"Uploading Android Media Library: [{percent}%]"));
 
         string currentDatabaseLocation = Path.Combine(Environment.CurrentDirectory, "external.db");
+        string backupDatabaseLocation = Path.Combine(Environment.CurrentDirectory, "backups", "Android Media Library", $"external [{DateTime.Now:yyyy-MM-dd-HH-mm}].db");
         string androidDatabaseLocation = "/data/data/com.android.providers.media/databases/external.db";
 
         try
@@ -445,6 +464,10 @@ public class Program
             await ADB.DownloadFileAsync(device, androidDatabaseLocation, currentDatabaseLocation, downloadProcess);
             Console.WriteLine("\n");
 
+            if (!Directory.Exists(Path.GetDirectoryName(backupDatabaseLocation)))
+                Directory.CreateDirectory(Path.GetDirectoryName(backupDatabaseLocation)!);
+            File.Copy(currentDatabaseLocation, backupDatabaseLocation, true);
+
 
             // Add Tracks
             Console.WriteLine($"Updating library...\n");
@@ -453,7 +476,7 @@ public class Program
 
             Console.WriteLine($"Preparing update...\n");
             long tracksPlaylist = await library.PlaylistManager.GetClearedOrAddPlaylistAsync(new("♬", "/mnt/sdcard/playlistImage/tracks", DateTime.Now.ToUnixEpoch()));
-            Track[] tracks = await library.TrackManager.GetAllAsync();
+            Track[] tracks = await library.TrackManager.GetAllAsync(track => track.Name != "Join Hangout");
 
             for (int currentTrack = 0; currentTrack < tracks.Length; currentTrack++)
             {
@@ -489,11 +512,62 @@ public class Program
             ConsoleHelpers.Write($"\nSynchronizing Music Files failed (Exception: {ex.Message}).");
         }
     }
+    
+    static void SyncMusicFilesToITunes()
+    {
+        ConsoleHelpers.WriteClear("[4]  Sync Music Files to iTunes:\n");
+
+        try
+        {
+            // Sync database to iTunes
+            Console.WriteLine($"Preparing synchronization...\n");
+            iTunesApp iTunes = new();
+            IITUserPlaylist playlist = Helpers.GetOrAddPlaylist(iTunes, "♫");
+            IITFileOrCDTrack[] iTracks = playlist.Tracks.OfType<IITFileOrCDTrack>().ToArray();
+            string[] iFiles = iTracks.Select(i => Path.GetFileName(i.Location)).ToArray();
+
+            string iTunesDatabaseLocation = Path.Combine(Path.GetDirectoryName(iTunes.LibraryXMLPath)!, "iTunes Library.itl");
+            string backupDatabaseLocation = Path.Combine(Environment.CurrentDirectory, "backups", "iTunes", $"iTunes Library [{DateTime.Now:yyyy-MM-dd-HH-mm}].itl");
+
+            if (!Directory.Exists(Path.GetDirectoryName(backupDatabaseLocation)))
+                Directory.CreateDirectory(Path.GetDirectoryName(backupDatabaseLocation)!);
+            File.Copy(iTunesDatabaseLocation, backupDatabaseLocation, true);
+
+            // Files
+            FileInfo[] files = new DirectoryInfo(config.SyncFromLocation)
+                .GetFiles()
+                .OrderBy(file => file.LastWriteTime)
+                .Take(config.SyncMaxCount)
+                .ToArray();
+
+            for (int i = 0; i < files.Length; i++)
+            {
+                // Sync file
+                FileInfo file = files[i];
+                if (iFiles.Contains(file.Name))
+                {
+                    Console.WriteLine($"[{i + 1}/{files.Length}]  Skipping '{file.Name}'");
+                    continue;
+                }
+
+                ConsoleHelpers.WriteClearLine($"[{i + 1}/{files.Length}]  Synchronizing '{file.Name}'");
+                playlist.AddFile(file.FullName);
+                Console.WriteLine();
+            }
+
+            ConsoleHelpers.Write($"\nMusic Files synchronized successfully.");
+        }
+        catch (Exception ex)
+        {
+            // Failed
+            ConsoleHelpers.Write($"\nSynchronizing Music Files failed (Exception: {ex.Message}).");
+        }
+    }
 
 
     static async Task ConnectToAdbDeviceAsync()
     {
-        ConsoleHelpers.WriteClear("[4]  Connect to ADB device:\n");
+        ConsoleHelpers.WriteClear("[5]  Connect to ADB device:\n");
 
         // Validation
         if (!Config.ValidateAdbConfig(config)) return;
@@ -514,7 +588,7 @@ public class Program
 
     static async Task UploadFileToDeviceAsync()
     {
-        ConsoleHelpers.WriteClear("[5]  Upload file to device:\n");
+        ConsoleHelpers.WriteClear("[6]  Upload file to device:\n");
 
         // Validation
         if (!Config.ValidateAdbConfig(config)) return;
@@ -550,7 +624,7 @@ public class Program
     
     static async Task DownloadFileFromDeviceAsync()
     {
-        ConsoleHelpers.WriteClear("[6]  Download file from device:\n");
+        ConsoleHelpers.WriteClear("[7]  Download file from device:\n");
 
         // Validation
         if (!Config.ValidateAdbConfig(config)) return;
@@ -587,17 +661,17 @@ public class Program
 
     static void ParseITunesLibrary()
     {
-        ConsoleHelpers.WriteClear("[7]  Parse iTunes Library:\n");
+        ConsoleHelpers.WriteClear("[8]  Parse iTunes Library:\n");
 
         try
         {
             iTunesApp iTunes = new();
 
-            IEnumerable<IITUserPlaylist> playlists = iTunes.LibrarySource.Playlists.OfType<IITUserPlaylist>().Where(playlist => playlist.SpecialKind == ITUserPlaylistSpecialKind.ITUserPlaylistSpecialKindNone);
-            //IEnumerable<IITTrack> tracks = iTunes.LibraryPlaylist.Tracks.Cast<IITTrack>();
+            IITUserPlaylist[] playlists = iTunes.LibrarySource.Playlists.OfType<IITUserPlaylist>().Where(playlist => playlist.SpecialKind == ITUserPlaylistSpecialKind.ITUserPlaylistSpecialKindNone).ToArray();
+            //IITFileOrCDTrack[] tracks = iTunes.LibraryPlaylist.Tracks.Cast<IITFileOrCDTrack>().ToArray();
 
             Console.WriteLine($"Track count: {iTunes.LibraryPlaylist.Tracks.Count}");
-            Console.WriteLine($"Playlist count: {playlists.Count()}");
+            Console.WriteLine($"Playlist count: {playlists.Length}");
 
             ConsoleHelpers.Write($"\nParsed iTunes Library.");
         }
